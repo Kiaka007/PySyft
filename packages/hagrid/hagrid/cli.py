@@ -13,12 +13,14 @@ import time
 from typing import Any
 from typing import Callable
 from typing import Dict as TypeDict
+from typing import List
 from typing import List as TypeList
 from typing import Optional
 from typing import Tuple
 from typing import Tuple as TypeTuple
 from typing import Union
 from typing import cast
+from urllib.parse import urlparse
 
 # third party
 import click
@@ -31,6 +33,7 @@ from virtualenvapi.manage import VirtualEnvironment
 from .art import hagrid
 from .auth import AuthCredentials
 from .cache import DEFAULT_BRANCH
+from .cache import RENDERED_DIR
 from .cache import arg_cache
 from .deps import DEPENDENCIES
 from .deps import allowed_hosts
@@ -59,6 +62,8 @@ from .lib import save_vm_details_as_json
 from .lib import update_repo
 from .lib import use_branch
 from .mode import EDITABLE_MODE
+from .parse_template import render_templates
+from .parse_template import setup_from_manifest_template
 from .quickstart_ui import quickstart_download_notebook
 from .rand_sec import generate_sec_random_password
 from .style import RichGroup
@@ -294,6 +299,13 @@ def clean(location: str) -> None:
     is_flag=True,
     help="Optional: prevent lots of launch output",
 )
+@click.option(
+    "--from_template",
+    default="false",
+    required=False,
+    type=str,
+    help="Optional: launch node using the manifest template",
+)
 def launch(args: TypeTuple[str], **kwargs: TypeDict[str, Any]) -> None:
     verb = get_launch_verb()
     try:
@@ -320,7 +332,13 @@ def launch(args: TypeTuple[str], **kwargs: TypeDict[str, Any]) -> None:
 
     try:
         silent = bool(kwargs["silent"]) if "silent" in kwargs else False
-        execute_commands(cmds, dry_run=dry_run, silent=silent)
+        from_rendered_dir = (
+            str_to_bool(cast(str, kwargs["from_template"])) and EDITABLE_MODE
+        )
+
+        execute_commands(
+            cmds, dry_run=dry_run, silent=silent, from_rendered_dir=from_rendered_dir
+        )
         print("Success!\n\n")
     except Exception as e:
         print(f"Error: {e}\n\n")
@@ -328,7 +346,10 @@ def launch(args: TypeTuple[str], **kwargs: TypeDict[str, Any]) -> None:
 
 
 def execute_commands(
-    cmds: TypeList, dry_run: bool = False, silent: bool = False
+    cmds: TypeList,
+    dry_run: bool = False,
+    silent: bool = False,
+    from_rendered_dir: bool = False,
 ) -> None:
     """Execute the launch commands and display their status in realtime.
 
@@ -345,6 +366,14 @@ def execute_commands(
     # display VM credentials
     console.print(generate_user_table(username=username, password=password))
 
+    cwd = (
+        os.path.join(GRID_SRC_PATH, RENDERED_DIR)
+        if from_rendered_dir
+        else GRID_SRC_PATH
+    )
+
+    print("Current Working Directory: ", cwd)
+
     for cmd in cmds:
         if dry_run:
             print("Running: \n", hide_password(cmd=cmd))
@@ -359,7 +388,7 @@ def execute_commands(
                     cmd_to_exec,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    cwd=GRID_SRC_PATH,
+                    cwd=cwd,
                     shell=True,
                 )
                 ip_address = extract_host_ip_from_cmd(cmd)
@@ -372,7 +401,7 @@ def execute_commands(
                         cmd_to_exec,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        cwd=GRID_SRC_PATH,
+                        cwd=cwd,
                         shell=True,
                     )
                     process.communicate()
@@ -380,7 +409,7 @@ def execute_commands(
                     subprocess.run(  # nosec
                         cmd_to_exec,
                         shell=True,
-                        cwd=GRID_SRC_PATH,
+                        cwd=cwd,
                     )
         except Exception as e:
             print(f"Failed to run cmd: {cmd}. {e}")
@@ -808,6 +837,9 @@ def create_launch_cmd(
     parsed_kwargs["test"] = bool(kwargs["test"]) if "test" in kwargs else False
     parsed_kwargs["dev"] = bool(kwargs["dev"]) if "dev" in kwargs else False
     parsed_kwargs["silent"] = bool(kwargs["silent"]) if "silent" in kwargs else False
+    parsed_kwargs["from_template"] = (
+        str_to_bool(kwargs["from_template"]) if "from_template" in kwargs else False
+    )
 
     parsed_kwargs["release"] = "production"
     if "release" in kwargs and kwargs["release"] != "production":
@@ -848,6 +880,16 @@ def create_launch_cmd(
 
     # allows changing docker platform to other cpu architectures like arm64
     parsed_kwargs["platform"] = kwargs["platform"] if "platform" in kwargs else None
+
+    if parsed_kwargs["from_template"] and host is not None:
+        # Setup the files from the manifest_template.yml
+        kwargs = setup_from_manifest_template(host_type=host)
+
+        # Override template tag with user input tag
+        if parsed_kwargs["tag"] is not None:
+            kwargs.pop("tag")
+
+        parsed_kwargs.update(kwargs)
 
     if host in ["docker"]:
 
@@ -1359,6 +1401,8 @@ def create_launch_docker_cmd(
     version_string = kwargs["tag"]
     version_hash = "dockerhub"
     build = kwargs["build"]
+    from_template = kwargs["from_template"]
+
     if "release" in kwargs and kwargs["release"] == "development":
         # force version to have -dev at the end in dev mode
         # during development we can use the latest beta version
@@ -1459,6 +1503,7 @@ def create_launch_docker_cmd(
         cmd += " --profile frontend"
 
     # new docker compose regression work around
+    # default_env = os.path.expanduser("~/.hagrid/app/.env")
     default_env = f"{GRID_SRC_PATH}/.env"
     default_envs = {}
     with open(default_env, "r") as f:
@@ -1471,12 +1516,28 @@ def create_launch_docker_cmd(
                     value = parts[1]
                 default_envs[key] = value
     default_envs.update(envs)
+
+    # env file path
+    env_file_path = os.path.join(GRID_SRC_PATH, ".envfile")
+
+    # Render templates if creating stack from the manifest_template.yml
+    if from_template and host_term.host is not None:
+        # If release is development, update relative path
+        if EDITABLE_MODE:
+            default_envs["RELATIVE_PATH"] = "../"
+
+        render_templates(
+            env_vars=default_envs,
+            host_type=host_term.host,
+        )
+
+        env_file_path = os.path.join(GRID_SRC_PATH, RENDERED_DIR, ".envfile")
+
     try:
         env_file = ""
         for k, v in default_envs.items():
             env_file += f"{k}={v}\n"
 
-        env_file_path = os.path.abspath("./.envfile")
         with open(env_file_path, "w") as f:
             f.write(env_file)
 
@@ -2499,6 +2560,20 @@ cli.add_command(version)
     is_flag=True,
     help="CI Test Mode, don't hang on Jupyter",
 )
+@click.option(
+    "--repo",
+    default=arg_cache.repo,
+    help="Choose a repo to fetch the notebook from or just use OpenMined/PySyft",
+)
+@click.option(
+    "--branch",
+    default=DEFAULT_BRANCH,
+    help="Choose a branch to fetch from or just use dev",
+)
+@click.option(
+    "--commit",
+    help="Choose a specific commit to fetch the notebook from",
+)
 def quickstart_cli(
     url: Optional[str] = None,
     syft: str = "latest",
@@ -2506,6 +2581,9 @@ def quickstart_cli(
     quiet: bool = False,
     pre: bool = False,
     test: bool = False,
+    repo: str = arg_cache.repo,
+    branch: str = DEFAULT_BRANCH,
+    commit: Optional[str] = None,
     python: Optional[str] = None,
 ) -> None:
     try:
@@ -2532,9 +2610,32 @@ def quickstart_cli(
             )
 
         if url:
-            file_path, _ = quickstart_download_notebook(
-                url=url, directory=directory, reset=reset
-            )
+            allowed_schemes_as_url = ["http", "https"]
+            url_scheme = urlparse(url).scheme
+
+            if url_scheme not in allowed_schemes_as_url:
+                notebooks = get_urls_from_dir(
+                    repo=repo, branch=branch, commit=commit, url=url
+                )
+                overwrite_all_notebooks = False
+                if not reset:
+                    overwrite_all_notebooks = click.confirm(
+                        text=f"You have {len(notebooks)} conflicting notebooks. Would you like to overwrite them all?",
+                        default=False,
+                    )
+
+                for notebook_url in notebooks:
+                    file_path, _ = quickstart_download_notebook(
+                        url=notebook_url,
+                        directory=directory + "/" + url + "/",
+                        reset=reset,
+                        overwrite_all_notebooks=overwrite_all_notebooks,
+                    )
+
+            else:
+                file_path, _ = quickstart_download_notebook(
+                    url=url, directory=directory, reset=reset
+                )
         else:
             file_path = add_intro_notebook(directory=directory, reset=reset)
 
@@ -2562,6 +2663,12 @@ def quickstart_cli(
                     sys.exit(1)
                 print(f"Jupyter exists at: {jupyter_path}. CI Test mode exiting.")
                 sys.exit(0)
+
+            disable_toolbar_extension = f"{jupyter_binary} labextension disable @jupyterlab/cell-toolbar-extension"
+
+            subprocess.run(  # nosec
+                disable_toolbar_extension.split(" "), cwd=directory, env=environ
+            )
             proc = subprocess.Popen(  # nosec
                 cmd.split(" "),
                 cwd=directory,
@@ -2629,6 +2736,53 @@ def quickstart_setup(
     except Exception as e:
         print("failed", e)
         raise e
+
+
+def get_urls_from_dir(
+    repo: str,
+    branch: str,
+    commit: Optional[str],
+    url: str,
+) -> List[str]:
+    notebooks = []
+    if commit is not None:
+        gh_api_call = (
+            "https://api.github.com/repos/"
+            + repo
+            + "/git/trees/"
+            + commit
+            + "?recursive=1"
+        )
+    else:
+        gh_api_call = (
+            "https://api.github.com/repos/"
+            + repo
+            + "/git/trees/"
+            + branch
+            + "?recursive=1"
+        )
+    r = requests.get(gh_api_call)
+    if r.status_code != 200:
+        print(
+            f"Failed to fetch notebook from: {gh_api_call}.\nPlease try again with the correct parameters!"
+        )
+        sys.exit(1)
+
+    res = r.json()
+
+    for file in res["tree"]:
+        if file["path"].startswith("notebooks/quickstart/" + url):
+            if file["path"].endswith(".ipynb"):
+                temp_url = (
+                    "https://raw.githubusercontent.com/"
+                    + repo
+                    + "/"
+                    + branch
+                    + "/"
+                    + file["path"]
+                )
+                notebooks.append(temp_url)
+    return notebooks
 
 
 def add_intro_notebook(directory: str, reset: bool = False) -> str:
