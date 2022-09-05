@@ -1,5 +1,5 @@
-02 - How to create a Data Scientist account and configure your domain server with a privacy budget
-==================================================================================================
+02 - How to create a Data Scientist account and configure your domain server with a privacy budget (How to create accounts and assign privacy budgets)
+======================================================================================================================================================
 
 .. note:: 
    To run all the steps in this tutorial interactively, we prefer using the below command.
@@ -72,7 +72,7 @@ To create a Data Scientists account for someone within your team or organization
 Step 2: Assign Privacy Budget
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In our specific setup, the privacy budget is measured against data subjects, not datasets. 
-Therefore, the ``epsilon`` value indicates how much can be learned from any data subject.
+Therefore, the ``epsilon-ε`` value indicates how much can be learned from any data subject.
 
 .. note:: 
    Consider there are 500 patients and 10 data scientists. This means there are 
@@ -110,8 +110,9 @@ Once we're logged in, we will have the following view:
 From the UI, we can ``view`` and ``control`` the following:
 
 * **Users:** Shows a list of users that are signed to the domain. We can create, edit or delete a user from this interface.
-* **Permissions:** This is a list of the different sets of roles a user can have. Each role has a set of permissions that the DO can modify as per their norms.
+* **Permissions:** This is a list of the different sets of roles a user can have. Each role has a set of permissions that the DO (Data Owner) can modify as per their norms.
 * **Requests:** This list two types of requests Data Requests and Privacy Budget Upgrade requests.
+   
    * **Data Requests:** If users want complete access to a data/variable, they can request so from the DO. Such requests will be listed here, and the DO can manually decide which ones to approve or reject.
    * **Privacy Budget Requests:** These requests pertain to the Privacy budget upgrade requested by a DS. The DO can decide if they want to assign the given privacy budget to the user or deny their requests.
 
