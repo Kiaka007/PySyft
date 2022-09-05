@@ -142,14 +142,14 @@ which can involve changing email and password if necessary.
 Now our domain node is available for the data scientists to use 👏
 ------------------------------------------------------------------
 
-.. |02-create-account-configure-pb-00| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-00.jpg
+.. |02-create-account-configure-pb-00| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-00.png
   :width: 95%
 
-.. |02-create-account-configure-pb-01| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-01.jpg
+.. |02-create-account-configure-pb-01| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-01.png
   :width: 95%
 
-.. |02-create-account-configure-pb-02| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-02.jpg
+.. |02-create-account-configure-pb-02| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-02.png
   :width: 95%
 
-.. |02-create-account-configure-pb-03| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-03.jpg
+.. |02-create-account-configure-pb-03| image:: ../../_static/personas-image/data-owner/02-create-account-configure-pb-03.png
   :width: 95%
